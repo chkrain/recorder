@@ -5,26 +5,28 @@
 
 RECORDINGS_DIR="$HOME/screen_recordings"
 FPS=10
-SEGMENT_DURATION=300  
-MAX_DAYS=2
+SEGMENT_DURATION=300  # 5 минут
+MAX_HOURS=48  # 48 часов = 2 дня
 
 mkdir -p "$RECORDINGS_DIR"
 
-timestamp() {
-    date +"%Y%m%d_%H%M%S"
+timestamp_filename() {
+    date +"%d%m-%H%M-rec"
 }
 
 cleanup_old_files() {
-    echo "[$(date)] Очистка файлов старше $MAX_DAYS дней..."
-    find "$RECORDINGS_DIR" -name "screen_*.mp4" -type f -mtime +$MAX_DAYS -delete
+    echo "[$(date)] Очистка файлов старше $MAX_HOURS часов..."
+    find "$RECORDINGS_DIR" -name "screen_*.mp4" -type f -mmin +$((MAX_HOURS * 60)) -delete
     echo "[$(date)] Очистка завершена"
 }
 
 record_screen() {
     local segment_num=0
+    local session_start=$(date +%s)
+    local base_filename="screen_$(timestamp_filename)"
     
     while true; do
-        local filename="screen_$(timestamp)_segment_${segment_num}.mp4"
+        local filename="${base_filename}_${segment_num}.mp4"
         local filepath="$RECORDINGS_DIR/$filename"
         
         echo "[$(date)] Начало записи: $filename"
@@ -43,8 +45,11 @@ record_screen() {
         
         segment_num=$((segment_num + 1))
         
-        local current_hour=$(date +%H)
-        if [ "$current_hour" = "03" ]; then
+        # Проверяем каждые 30 минут, не пора ли очистить старые файлы
+        local current_time=$(date +%s)
+        local elapsed_minutes=$(( (current_time - session_start) / 60 ))
+        
+        if (( elapsed_minutes % 30 == 0 )); then
             cleanup_old_files
         fi
         
@@ -54,9 +59,11 @@ record_screen() {
 
 record_screen_mac() {
     local segment_num=0
+    local session_start=$(date +%s)
+    local base_filename="screen_$(timestamp_filename)"
     
     while true; do
-        local filename="screen_$(timestamp)_segment_${segment_num}.mp4"
+        local filename="${base_filename}_${segment_num}.mp4"
         local filepath="$RECORDINGS_DIR/$filename"
         
         echo "[$(date)] Начало записи: $filename"
@@ -75,8 +82,11 @@ record_screen_mac() {
         
         segment_num=$((segment_num + 1))
         
-        local current_hour=$(date +%H)
-        if [ "$current_hour" = "03" ]; then
+        # Проверяем каждые 30 минут, не пора ли очистить старые файлы
+        local current_time=$(date +%s)
+        local elapsed_minutes=$(( (current_time - session_start) / 60 ))
+        
+        if (( elapsed_minutes % 30 == 0 )); then
             cleanup_old_files
         fi
         

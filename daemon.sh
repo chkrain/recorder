@@ -16,6 +16,8 @@ start_daemon() {
     PID=$!
     echo $PID > "$PID_FILE"
     echo "Демон запущен с PID: $PID"
+    echo "Записи сохраняются в: $HOME/screen_recordings/"
+    echo "Формат имен: DDMM-HHMM-rec_N.mp4 (например: 2212-1658-rec_0.mp4)"
     echo "Логи: tail -f $LOG_FILE"
 }
 
@@ -50,6 +52,8 @@ status_daemon() {
         if kill -0 $PID 2>/dev/null; then
             echo "✓ Демон работает (PID: $PID)"
             echo "Время работы: $(ps -p $PID -o etime= 2>/dev/null || echo 'неизвестно')"
+            echo "Записи: $HOME/screen_recordings/"
+            echo "Формат имен: DDMM-HHMM-rec_N.mp4"
             echo "Логи: $LOG_FILE"
             echo "Последние строки лога:"
             tail -5 "$LOG_FILE" 2>/dev/null
