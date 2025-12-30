@@ -9,4 +9,7 @@
 chmod +x *.sh
 
 # Запустить установку
-./setup.sh
+./install.sh
+
+# Управление
+./manager.sh start|stop|restart|status|logs|menu

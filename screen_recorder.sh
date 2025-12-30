@@ -1,134 +1,82 @@
 #!/bin/bash
 
-CONFIG_FILE="$HOME/.screen_recorder_config"
-if [ -f "$CONFIG_FILE" ]; then
-    source "$CONFIG_FILE"
-else
-    DURATION_MINUTES=5
-    RETENTION_MIN=60
-    QUALITY="medium"
-    FPS=15
-    CRF=28
-    MAX_STORAGE_GB=0
-    ENABLE_STORAGE_LIMIT=0
-fi
-
-SEGMENT_DURATION=$((DURATION_MINUTES * 60))
-RETENTION_MINUTES=$((RETENTION_MIN))
-
 RECORDINGS_DIR="$HOME/screen_recordings"
 mkdir -p "$RECORDINGS_DIR"
 
+DURATION_MINUTES=1
+FPS=5
+CRF=28
+RETENTION_HOURS=1
+
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "[$(date '+%d%m%Y-%H%M%S')] $1"
 }
 
-get_folder_size_gb() {
-    if command -v du &> /dev/null; then
-        du -sb "$RECORDINGS_DIR" 2>/dev/null | awk '{printf "%.2f", $1/1024/1024/1024}'
-    else
-        echo "0"
-    fi
+get_hour_folder() {
+    local timestamp=$(date +"%d%m%y-%H")
+    echo "$RECORDINGS_DIR/$timestamp"
 }
 
-cleanup_old_files() {
-    log "Проверка старых файлов..."
-    
-    if command -v find &> /dev/null; then
-        find "$RECORDINGS_DIR" -name "*.mp4" -type f -mmin +$RETENTION_MINUTES -delete 2>/dev/null
-        log "Удалены файлы старше $RETENTION_MIN имнут"
+check_dependencies() {
+    if ! command -v ffmpeg &> /dev/null; then
+        log "ОШИБКА: Установите ffmpeg: sudo apt install ffmpeg"
+        exit 1
     fi
     
-    if [ "$ENABLE_STORAGE_LIMIT" -eq 1 ] && [ "$MAX_STORAGE_GB" -gt 0 ]; then
-        local current_size=$(get_folder_size_gb)
-        if (( $(echo "$current_size > $MAX_STORAGE_GB" | bc -l 2>/dev/null || echo "0") )); then
-            log "Превышен лимит: ${current_size}GB > ${MAX_STORAGE_GB}GB"
-            log "Удаляю самые старые файлы..."
-            
-            find "$RECORDINGS_DIR" -name "*.mp4" -type f -printf '%T+ %p\n' 2>/dev/null | \
-                sort | head -n 10 | cut -d' ' -f2- | while read file; do
-                rm -f "$file"
-                log "Удалён: $(basename "$file")"
-                
-                current_size=$(get_folder_size_gb)
-                if (( $(echo "$current_size <= $MAX_STORAGE_GB" | bc -l 2>/dev/null || echo "1") )); then
-                    break
-                fi
-            done
-        fi
+    if [ -z "$DISPLAY" ]; then
+        export DISPLAY=:0
     fi
 }
 
 get_screen_resolution() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        if command -v xdpyinfo &> /dev/null; then
-            xdpyinfo | grep dimensions | awk '{print $2}' 2>/dev/null
-        elif command -v xrandr &> /dev/null; then
-            xrandr | grep '*' | head -1 | awk '{print $1}' 2>/dev/null
-        else
-            echo "1920x1080"
-        fi
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        system_profiler SPDisplaysDataType | grep Resolution | head -1 | awk '{print $2"x"$4}'
+    if command -v xdpyinfo &> /dev/null; then
+        xdpyinfo | grep dimensions | awk '{print $2}' 2>/dev/null || echo "1920x1080"
     else
         echo "1920x1080"
     fi
 }
 
+cleanup_old_recordings() {
+    if [ "$RETENTION_HOURS" -gt 0 ]; then
+        find "$RECORDINGS_DIR" -type d -name "*" -mmin +$((RETENTION_HOURS * 60)) -exec rm -rf {} + 2>/dev/null
+    fi
+}
+
 record_screen() {
-    local session_id=$(date +"%Y%m%d_%H%M%S")
-    local segment_num=0
+    local resolution=$(get_screen_resolution)
+    log "Запуск записи с разрешением: $resolution"
+    
     local last_cleanup=$(date +%s)
     
-    local resolution=$(get_screen_resolution)
-    log "Разрешение экрана: $resolution"
-    
-    local display="${DISPLAY:-:0}"
-    log "Используется дисплей: $display"
-    
     while true; do
-        local timestamp=$(date +"%d%m-%H%M")
-        local filename="record_${timestamp}_${segment_num}.mp4"
-        local filepath="$RECORDINGS_DIR/$filename"
+        local hour_folder=$(get_hour_folder)
+        mkdir -p "$hour_folder"
         
-        log "Начало записи: $filename (${DURATION_MINUTES} мин, $QUALITY)"
+        local timestamp=$(date +"%M%S")
+        local filename="record_${timestamp}.mp4"
+        local filepath="$hour_folder/$filename"
         
-        if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            ffmpeg -f x11grab \
-                   -video_size "$resolution" \
-                   -framerate $FPS \
-                   -i "$display" \
-                   -t $SEGMENT_DURATION \
-                   -c:v libx264 \
-                   -preset fast \
-                   -crf $CRF \
-                   -pix_fmt yuv420p \
-                   "$filepath" > /dev/null 2>&1
-        elif [[ "$OSTYPE" == "darwin"* ]]; then
-            ffmpeg -f avfoundation \
-                   -capture_cursor 1 \
-                   -i "1:0" \
-                   -t $SEGMENT_DURATION \
-                   -c:v libx264 \
-                   -preset fast \
-                   -crf $CRF \
-                   -pix_fmt yuv420p \
-                   "$filepath" > /dev/null 2>&1
-        fi
+        ffmpeg -f x11grab \
+               -video_size "$resolution" \
+               -framerate $FPS \
+               -i "${DISPLAY:-:0}" \
+               -t $((DURATION_MINUTES * 60)) \
+               -c:v libx264 \
+               -preset fast \
+               -crf $CRF \
+               -pix_fmt yuv420p \
+               -y "$filepath" > /dev/null 2>&1
         
         if [ $? -eq 0 ]; then
-            log "Запись завершена: $filename"
+            log "✓ $(basename "$hour_folder")/$filename"
         else
-            log "Ошибка записи, пауза 5 секунд..."
+            log "✗ Ошибка записи"
             sleep 5
-            continue
         fi
-        
-        segment_num=$((segment_num + 1))
         
         local current_time=$(date +%s)
         if [ $((current_time - last_cleanup)) -gt 1800 ]; then
-            cleanup_old_files
+            cleanup_old_recordings
             last_cleanup=$current_time
         fi
         
@@ -136,27 +84,14 @@ record_screen() {
     done
 }
 
-check_dependencies() {
-    if ! command -v ffmpeg &> /dev/null; then
-        log "Ошибка: ffmpeg не установлен!"
-        log "Запустите setup.sh для установки"
-        exit 1
-    fi
-    
-    if [[ "$OSTYPE" == "linux-gnu"* ]] && [ -z "$DISPLAY" ]; then
-        export DISPLAY=:0
-        log "Установлен DISPLAY=:0"
-    fi
-}
-
 main() {
-    log "Запуск Screen Recorder"
-    log "Папка записей: $RECORDINGS_DIR"
-    log "Настройки: ${DURATION_MINUTES}мин/файл, хранение: ${RETENTION_MIN}m, качество: $QUALITY"
+    log "🚀 Screen Recorder запущен"
+    log "Настройки: ${DURATION_MINUTES} мин/файл, ${FPS} FPS"
     
     check_dependencies
-    cleanup_old_files
+    cleanup_old_recordings
     record_screen
 }
 
+trap 'log "Завершение работы..."; exit 0' SIGINT SIGTERM
 main
