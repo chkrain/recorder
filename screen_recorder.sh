@@ -6,7 +6,7 @@ mkdir -p "$RECORDINGS_DIR"
 DURATION_MINUTES=1
 FPS=5
 CRF=28
-RETENTION_HOURS=1
+RETENTION_HOURS=48
 
 log() {
     echo "[$(date '+%d%m%Y-%H%M%S')] $1"
